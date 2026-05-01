@@ -45,8 +45,10 @@ export async function migrate() {
       id SERIAL PRIMARY KEY,
       name VARCHAR(120) NOT NULL,
       description TEXT NOT NULL DEFAULT '',
+      status VARCHAR(16) NOT NULL DEFAULT 'todo' CHECK (status IN ('todo', 'in_progress', 'done')),
       owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS project_members (
@@ -73,5 +75,11 @@ export async function migrate() {
     CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_assignee_id ON tasks(assignee_id);
     CREATE INDEX IF NOT EXISTS idx_project_members_user_id ON project_members(user_id);
+  `);
+
+  await query(`
+    ALTER TABLE projects
+      ADD COLUMN IF NOT EXISTS status VARCHAR(16) NOT NULL DEFAULT 'todo',
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
 }

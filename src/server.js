@@ -36,7 +36,15 @@ const loginSchema = z.object({
 const projectSchema = z.object({
   name: z.string().trim().min(2).max(120),
   description: z.string().trim().max(1000).optional().default(""),
+  status: z.enum(["todo", "in_progress", "done"]).optional().default("todo"),
   memberIds: z.array(z.number().int().positive()).optional().default([])
+});
+
+const projectUpdateSchema = z.object({
+  name: z.string().trim().min(2).max(120).optional(),
+  description: z.string().trim().max(1000).optional(),
+  status: z.enum(["todo", "in_progress", "done"]).optional(),
+  memberIds: z.array(z.number().int().positive()).optional()
 });
 
 const taskSchema = z.object({
@@ -51,6 +59,15 @@ const taskSchema = z.object({
 
 const statusSchema = z.object({
   status: z.enum(["todo", "in_progress", "done"])
+});
+
+const taskUpdateSchema = z.object({
+  title: z.string().trim().min(2).max(160).optional(),
+  description: z.string().trim().max(1500).optional(),
+  assigneeId: z.number().int().positive().nullable().optional(),
+  status: z.enum(["todo", "in_progress", "done"]).optional(),
+  priority: z.enum(["low", "medium", "high"]).optional(),
+  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional()
 });
 
 function sendError(res, status, message, details) {
@@ -166,8 +183,8 @@ app.post("/api/projects", auth, requireAdmin, async (req, res) => {
 
   const project = await transaction(async (client) => {
     const { rows } = await client.query(
-      "INSERT INTO projects (name, description, owner_id) VALUES ($1, $2, $3) RETURNING *",
-      [parsed.data.name, parsed.data.description, req.user.id]
+      "INSERT INTO projects (name, description, status, owner_id) VALUES ($1, $2, $3, $4) RETURNING *",
+      [parsed.data.name, parsed.data.description, parsed.data.status, req.user.id]
     );
     const memberIds = [...new Set([req.user.id, ...parsed.data.memberIds])];
     for (const userId of memberIds) {
@@ -180,6 +197,59 @@ app.post("/api/projects", auth, requireAdmin, async (req, res) => {
   });
 
   res.status(201).json({ project });
+});
+
+app.patch("/api/projects/:id", auth, requireAdmin, async (req, res) => {
+  const parsed = projectUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return sendError(res, 400, "Invalid project update.", parsed.error.flatten());
+
+  const projectId = Number(req.params.id);
+  const existing = await query("SELECT owner_id FROM projects WHERE id = $1", [projectId]);
+  if (!existing.rows[0]) return sendError(res, 404, "Project not found.");
+
+  const project = await transaction(async (client) => {
+    const current = await client.query("SELECT * FROM projects WHERE id = $1", [projectId]);
+    const next = {
+      name: parsed.data.name ?? current.rows[0].name,
+      description: parsed.data.description ?? current.rows[0].description,
+      status: parsed.data.status ?? current.rows[0].status
+    };
+
+    const updated = await client.query(
+      `UPDATE projects
+       SET name = $1, description = $2, status = $3, updated_at = NOW()
+       WHERE id = $4
+       RETURNING *`,
+      [next.name, next.description, next.status, projectId]
+    );
+
+    if (parsed.data.memberIds) {
+      const memberIds = [...new Set([existing.rows[0].owner_id, ...parsed.data.memberIds])];
+      await client.query("DELETE FROM project_members WHERE project_id = $1", [projectId]);
+      for (const userId of memberIds) {
+        await client.query("INSERT INTO project_members (project_id, user_id) VALUES ($1, $2)", [projectId, userId]);
+      }
+    }
+
+    return updated.rows[0];
+  });
+
+  res.json({ project });
+});
+
+app.patch("/api/projects/:id/status", auth, async (req, res) => {
+  const parsed = statusSchema.safeParse(req.body);
+  if (!parsed.success) return sendError(res, 400, "Invalid project status.", parsed.error.flatten());
+
+  const projectId = Number(req.params.id);
+  if (!(await canAccessProject(req.user, projectId))) return sendError(res, 403, "Project access denied.");
+
+  const { rows } = await query(
+    "UPDATE projects SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *",
+    [parsed.data.status, projectId]
+  );
+  if (!rows[0]) return sendError(res, 404, "Project not found.");
+  res.json({ project: rows[0] });
 });
 
 app.get("/api/projects/:id", auth, async (req, res) => {
@@ -228,14 +298,11 @@ app.patch("/api/projects/:id/members", auth, requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/tasks", auth, async (req, res) => {
+app.post("/api/tasks", auth, requireAdmin, async (req, res) => {
   const parsed = taskSchema.safeParse(req.body);
   if (!parsed.success) return sendError(res, 400, "Invalid task data.", parsed.error.flatten());
   const task = parsed.data;
 
-  if (req.user.role !== "admin" && task.assigneeId !== req.user.id) {
-    return sendError(res, 403, "Members can only create tasks assigned to themselves.");
-  }
   if (!(await canAccessProject(req.user, task.projectId))) return sendError(res, 403, "Project access denied.");
 
   if (task.assigneeId) {
@@ -253,6 +320,47 @@ app.post("/api/tasks", auth, async (req, res) => {
     [task.projectId, task.title, task.description, task.assigneeId || null, task.status, task.priority, task.dueDate || null, req.user.id]
   );
   res.status(201).json({ task: rows[0] });
+});
+
+app.patch("/api/tasks/:id", auth, requireAdmin, async (req, res) => {
+  const parsed = taskUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return sendError(res, 400, "Invalid task update.", parsed.error.flatten());
+
+  const { rows } = await query("SELECT * FROM tasks WHERE id = $1", [Number(req.params.id)]);
+  const task = rows[0];
+  if (!task) return sendError(res, 404, "Task not found.");
+
+  if (parsed.data.assigneeId) {
+    const { rowCount } = await query(
+      "SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2",
+      [task.project_id, parsed.data.assigneeId]
+    );
+    if (rowCount === 0) return sendError(res, 400, "Assignee must be a project member.");
+  }
+
+  const updated = await query(
+    `UPDATE tasks
+     SET title = $1,
+         description = $2,
+         assignee_id = $3,
+         status = $4,
+         priority = $5,
+         due_date = $6,
+         updated_at = NOW()
+     WHERE id = $7
+     RETURNING *`,
+    [
+      parsed.data.title ?? task.title,
+      parsed.data.description ?? task.description,
+      Object.hasOwn(parsed.data, "assigneeId") ? parsed.data.assigneeId : task.assignee_id,
+      parsed.data.status ?? task.status,
+      parsed.data.priority ?? task.priority,
+      Object.hasOwn(parsed.data, "dueDate") ? parsed.data.dueDate : task.due_date,
+      task.id
+    ]
+  );
+
+  res.json({ task: updated.rows[0] });
 });
 
 app.patch("/api/tasks/:id/status", auth, async (req, res) => {

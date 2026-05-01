@@ -153,6 +153,60 @@ async function createTask(event) {
   render();
 }
 
+async function updateProject(event) {
+  event.preventDefault();
+  state.formError = "";
+  const values = formData(event.currentTarget);
+  const memberIds = [...event.currentTarget.querySelectorAll("[name=memberIds]:checked")].map((input) => Number(input.value));
+  try {
+    await api(`/api/projects/${state.currentProject}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: values.name,
+        description: values.description,
+        status: values.status,
+        memberIds
+      })
+    });
+    await loadApp();
+  } catch (error) {
+    state.formError = error.message;
+  }
+  render();
+}
+
+async function updateProjectStatus(status) {
+  await api(`/api/projects/${state.currentProject}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ status })
+  });
+  await loadApp();
+  render();
+}
+
+async function updateTask(event) {
+  event.preventDefault();
+  state.formError = "";
+  const values = formData(event.currentTarget);
+  try {
+    await api(`/api/tasks/${values.taskId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        title: values.title,
+        description: values.description,
+        assigneeId: values.assigneeId ? Number(values.assigneeId) : null,
+        status: values.status,
+        priority: values.priority,
+        dueDate: values.dueDate || null
+      })
+    });
+    await loadApp();
+  } catch (error) {
+    state.formError = error.message;
+  }
+  render();
+}
+
 async function updateStatus(taskId, status) {
   await api(`/api/tasks/${taskId}/status`, {
     method: "PATCH",
@@ -228,6 +282,40 @@ function projectForm() {
   `;
 }
 
+function projectManager() {
+  if (state.user.role !== "admin" || !state.projectDetails) return "";
+  const project = state.projectDetails.project;
+  const selected = new Set((state.projectDetails.members || []).map((member) => member.id));
+  const members = state.users.filter((user) => user.id !== state.user.id);
+  return `
+    <form class="form" id="project-edit-form">
+      <div class="section-title"><h2>Edit Project</h2><span class="tag">${statusLabels[project.status] || "To do"}</span></div>
+      <div class="field"><label>Project name</label><input name="name" required minlength="2" value="${escapeHtml(project.name)}" /></div>
+      <div class="field"><label>Description</label><textarea name="description">${escapeHtml(project.description || "")}</textarea></div>
+      <div class="field">
+        <label>Project progress</label>
+        <select name="status">
+          ${Object.entries(statusLabels).map(([value, label]) => `<option value="${value}" ${project.status === value ? "selected" : ""}>${label}</option>`).join("")}
+        </select>
+      </div>
+      <div class="field">
+        <label>Assigned members</label>
+        <div class="member-checklist">
+          ${members.length ? members.map((user) => `
+            <label class="member-option">
+              <input type="checkbox" name="memberIds" value="${user.id}" ${selected.has(user.id) ? "checked" : ""} />
+              <span><strong>${escapeHtml(user.name)}</strong><span>${escapeHtml(user.email)}</span></span>
+              <span class="role">${user.role}</span>
+            </label>
+          `).join("") : `<div class="notice">No members have signed up yet.</div>`}
+        </div>
+      </div>
+      <button class="primary" type="submit">Save project</button>
+      ${state.formError ? `<p class="error">${escapeHtml(state.formError)}</p>` : ""}
+    </form>
+  `;
+}
+
 function memberRoster() {
   if (state.user.role !== "admin") return "";
   return `
@@ -246,6 +334,7 @@ function memberRoster() {
 }
 
 function taskForm() {
+  if (state.user.role !== "admin") return "";
   if (!state.projectDetails) return "";
   const members = state.projectDetails.members || [];
   const assigneeOptions = members
@@ -265,6 +354,19 @@ function taskForm() {
       <button class="primary" type="submit">Add task</button>
       ${state.formError ? `<p class="error">${escapeHtml(state.formError)}</p>` : ""}
     </form>
+  `;
+}
+
+function projectProgressControl() {
+  const project = state.projectDetails?.project;
+  if (!project) return "";
+  return `
+    <div class="progress-bar">
+      <span class="tag ${project.status}">Project: ${statusLabels[project.status] || "To do"}</span>
+      <select id="project-status">
+        ${Object.entries(statusLabels).map(([value, label]) => `<option value="${value}" ${project.status === value ? "selected" : ""}>${label}</option>`).join("")}
+      </select>
+    </div>
   `;
 }
 
@@ -289,6 +391,7 @@ function projectList() {
       <h3>${escapeHtml(project.name)}</h3>
       <p>${escapeHtml(project.description || "No description")}</p>
       <div class="meta"><span class="tag">${project.member_count} members</span><span class="tag">Owner: ${escapeHtml(project.owner_name)}</span></div>
+      <div class="meta"><span class="tag ${project.status}">${statusLabels[project.status] || "To do"}</span></div>
     </button>
   `).join("")}</div>`;
 }
@@ -298,7 +401,11 @@ function taskList() {
   if (!details) return `<div class="notice">Select a project to view tasks.</div>`;
   if (!details.tasks.length) return `<div class="notice">No tasks in this project yet.</div>`;
 
-  return `<div class="task-grid">${details.tasks.map((task) => `
+  return `<div class="task-grid">${details.tasks.map((task) => state.user.role === "admin" ? adminTaskCard(task) : memberTaskCard(task)).join("")}</div>`;
+}
+
+function memberTaskCard(task) {
+  return `
     <article class="task-card">
       <div>
         <h3>${escapeHtml(task.title)}</h3>
@@ -316,7 +423,41 @@ function taskList() {
         </select>
       </div>
     </article>
-  `).join("")}</div>`;
+  `;
+}
+
+function adminTaskCard(task) {
+  const members = state.projectDetails?.members || [];
+  return `
+    <article class="task-card">
+      <form class="task-edit-form">
+        <input type="hidden" name="taskId" value="${task.id}" />
+        <div class="field"><label>Task</label><input name="title" required minlength="2" value="${escapeHtml(task.title)}" /></div>
+        <div class="field"><label>Description</label><textarea name="description">${escapeHtml(task.description || "")}</textarea></div>
+        <div class="field">
+          <label>Assignee</label>
+          <select name="assigneeId">
+            <option value="">Unassigned</option>
+            ${members.map((member) => `<option value="${member.id}" ${task.assignee_id === member.id ? "selected" : ""}>${escapeHtml(member.name)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="inline-fields">
+          <div class="field">
+            <label>Status</label>
+            <select name="status">${Object.entries(statusLabels).map(([value, label]) => `<option value="${value}" ${task.status === value ? "selected" : ""}>${label}</option>`).join("")}</select>
+          </div>
+          <div class="field">
+            <label>Priority</label>
+            <select name="priority">
+              ${["low", "medium", "high"].map((value) => `<option value="${value}" ${task.priority === value ? "selected" : ""}>${value}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+        <div class="field"><label>Due date</label><input name="dueDate" type="date" value="${task.due_date ? task.due_date.slice(0, 10) : ""}" /></div>
+        <button class="primary" type="submit">Save task</button>
+      </form>
+    </article>
+  `;
 }
 
 function appView() {
@@ -336,6 +477,7 @@ function appView() {
       <div class="content">
         <aside class="sidebar">
           ${memberRoster()}
+          ${projectManager()}
           ${projectForm()}
           ${taskForm()}
         </aside>
@@ -348,6 +490,7 @@ function appView() {
             <section>
               <div class="toolbar">
                 <h2>${escapeHtml(state.projectDetails?.project?.name || "Tasks")}</h2>
+                ${projectProgressControl()}
                 ${taskList()}
               </div>
             </section>
@@ -359,7 +502,12 @@ function appView() {
 
   app.querySelector("#logout").addEventListener("click", logout);
   app.querySelector("#project-form")?.addEventListener("submit", createProject);
+  app.querySelector("#project-edit-form")?.addEventListener("submit", updateProject);
   app.querySelector("#task-form")?.addEventListener("submit", createTask);
+  app.querySelectorAll(".task-edit-form").forEach((form) => {
+    form.addEventListener("submit", updateTask);
+  });
+  app.querySelector("#project-status")?.addEventListener("change", (event) => updateProjectStatus(event.target.value));
   app.querySelectorAll("[data-project]").forEach((button) => {
     button.addEventListener("click", () => loadProject(button.dataset.project));
   });
