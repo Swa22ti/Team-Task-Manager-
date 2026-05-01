@@ -8,6 +8,7 @@ const state = {
   projectDetails: null,
   dashboard: null,
   authMode: "login",
+  adminView: "projects",
   error: "",
   formError: ""
 };
@@ -38,7 +39,7 @@ function saveSession(data) {
 function logout() {
   localStorage.removeItem("ttm_token");
   localStorage.removeItem("ttm_user");
-  Object.assign(state, { token: null, user: null, projects: [], currentProject: null, projectDetails: null, error: "", formError: "" });
+  Object.assign(state, { token: null, user: null, projects: [], currentProject: null, projectDetails: null, adminView: "projects", error: "", formError: "" });
   render();
 }
 
@@ -122,6 +123,7 @@ async function createProject(event) {
     });
     event.currentTarget.reset();
     state.currentProject = created.project.id;
+    state.adminView = "projects";
     await loadApp();
   } catch (error) {
     state.formError = error.message;
@@ -146,6 +148,7 @@ async function createTask(event) {
       })
     });
     event.currentTarget.reset();
+    state.adminView = "projects";
     await loadApp();
   } catch (error) {
     state.formError = error.message;
@@ -168,6 +171,7 @@ async function updateProject(event) {
         memberIds
       })
     });
+    state.adminView = "projects";
     await loadApp();
   } catch (error) {
     state.formError = error.message;
@@ -384,6 +388,25 @@ function dashboard() {
   `).join("")}</section>`;
 }
 
+function upcomingTasks() {
+  const tasks = state.dashboard?.upcomingTasks || [];
+  if (!tasks.length) return `<div class="notice">No active upcoming tasks.</div>`;
+  return `<div class="task-grid">${tasks.map((task) => `
+    <article class="task-card">
+      <div>
+        <h3>${escapeHtml(task.title)}</h3>
+        <p>${escapeHtml(task.project_name || "Project")}</p>
+      </div>
+      <div class="meta">
+        <span class="tag ${task.status}">${statusLabels[task.status]}</span>
+        <span class="tag ${task.priority}">${task.priority}</span>
+        ${task.due_date ? `<span class="tag ${isOverdue(task) ? "overdue" : ""}">Due ${task.due_date.slice(0, 10)}</span>` : ""}
+        <span class="tag">${escapeHtml(task.assignee_name || "Unassigned")}</span>
+      </div>
+    </article>
+  `).join("")}</div>`;
+}
+
 function projectList() {
   if (!state.projects.length) return `<div class="notice">No projects yet.</div>`;
   return `<div class="list">${state.projects.map((project) => `
@@ -393,6 +416,23 @@ function projectList() {
       <div class="meta"><span class="tag">${project.member_count} members</span><span class="tag">Owner: ${escapeHtml(project.owner_name)}</span></div>
       <div class="meta"><span class="tag ${project.status}">${statusLabels[project.status] || "To do"}</span></div>
     </button>
+  `).join("")}</div>`;
+}
+
+function adminProjectBoard() {
+  if (!state.projects.length) return `<div class="notice">No projects yet. Open New Project from the sidebar to create one.</div>`;
+  return `<div class="project-board">${state.projects.map((project) => `
+    <article class="project-card">
+      <div>
+        <h3>${escapeHtml(project.name)}</h3>
+        <p>${escapeHtml(project.description || "No description")}</p>
+      </div>
+      <div class="meta">
+        <span class="tag ${project.status}">${statusLabels[project.status] || "To do"}</span>
+        <span class="tag">${project.member_count} members</span>
+      </div>
+      <button class="primary" data-manage-project="${project.id}" type="button">Manage</button>
+    </article>
   `).join("")}</div>`;
 }
 
@@ -460,27 +500,70 @@ function adminTaskCard(task) {
   `;
 }
 
-function appView() {
-  app.innerHTML = `
+function adminSidebar() {
+  const items = [
+    ["projects", "Projects"],
+    ["dashboard", "Dashboard"],
+    ["members", "Working Members"],
+    ["edit", "Edit Project"],
+    ["newProject", "New Project"],
+    ["newTask", "New Task"]
+  ];
+  return `
+    <aside class="app-sidebar">
+      <div>
+        <h2>Admin</h2>
+        <p class="muted">Manage projects, people, and task progress.</p>
+      </div>
+      <nav class="side-nav">
+        ${items.map(([view, label]) => `
+          <button class="${state.adminView === view ? "active" : ""}" data-view="${view}" type="button">${label}</button>
+        `).join("")}
+      </nav>
+    </aside>
+  `;
+}
+
+function panel(title, body) {
+  return `<section class="toolbar panel"><h2>${title}</h2>${body}</section>`;
+}
+
+function adminMain() {
+  if (state.adminView === "dashboard") {
+    return `${panel("Dashboard", `${dashboard()}<h2 class="subhead">Upcoming Tasks</h2>${upcomingTasks()}`)}`;
+  }
+  if (state.adminView === "members") return memberRoster();
+  if (state.adminView === "edit") {
+    return state.projectDetails
+      ? `${projectManager()}${panel("Tasks", taskList())}`
+      : panel("Edit Project", `<div class="notice">Select a project from Projects first.</div>`);
+  }
+  if (state.adminView === "newProject") return projectForm();
+  if (state.adminView === "newTask") {
+    return state.projectDetails
+      ? taskForm()
+      : panel("New Task", `<div class="notice">Select a project from Projects before creating a task.</div>`);
+  }
+  return panel("Projects", adminProjectBoard());
+}
+
+function adminAppView() {
+  return `
     <section class="app-shell">
-      <header class="topbar">
-        <div>
-          <h1>Team Task Manager</h1>
-          <div class="muted">Projects, assignments, status, and overdue work in one place.</div>
-        </div>
-        <div class="user-pill">
-          <span>${escapeHtml(state.user.name)}</span>
-          <span class="role">${state.user.role}</span>
-          <button class="ghost" id="logout">Logout</button>
-        </div>
-      </header>
-      <div class="content">
-        <aside class="sidebar">
-          ${memberRoster()}
-          ${projectManager()}
-          ${projectForm()}
-          ${taskForm()}
-        </aside>
+      ${topbar()}
+      <div class="admin-layout">
+        ${adminSidebar()}
+        <main class="admin-main">${adminMain()}</main>
+      </div>
+    </section>
+  `;
+}
+
+function memberAppView() {
+  return `
+    <section class="app-shell">
+      ${topbar()}
+      <div class="member-content">
         <section class="main">
           ${dashboard()}
           <div class="workspace">
@@ -499,8 +582,41 @@ function appView() {
       </div>
     </section>
   `;
+}
+
+function topbar() {
+  return `
+    <header class="topbar">
+      <div>
+        <h1>Team Task Manager</h1>
+        <div class="muted">Projects, assignments, status, and overdue work in one place.</div>
+      </div>
+      <div class="user-pill">
+        <span>${escapeHtml(state.user.name)}</span>
+        <span class="role">${state.user.role}</span>
+        <button class="ghost" id="logout">Logout</button>
+      </div>
+    </header>
+  `;
+}
+
+function appView() {
+  app.innerHTML = state.user.role === "admin" ? adminAppView() : memberAppView();
 
   app.querySelector("#logout").addEventListener("click", logout);
+  app.querySelectorAll("[data-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.adminView = button.dataset.view;
+      state.formError = "";
+      render();
+    });
+  });
+  app.querySelectorAll("[data-manage-project]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      state.adminView = "edit";
+      await loadProject(button.dataset.manageProject);
+    });
+  });
   app.querySelector("#project-form")?.addEventListener("submit", createProject);
   app.querySelector("#project-edit-form")?.addEventListener("submit", updateProject);
   app.querySelector("#task-form")?.addEventListener("submit", createTask);

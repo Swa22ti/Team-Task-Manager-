@@ -384,34 +384,59 @@ app.patch("/api/tasks/:id/status", auth, async (req, res) => {
 
 app.get("/api/dashboard", auth, async (req, res) => {
   const params = req.user.role === "admin" ? [] : [req.user.id];
-  const visibilityJoin = req.user.role === "admin"
+  const projectJoin = req.user.role === "admin"
+    ? ""
+    : "JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = $1";
+  const taskJoin = req.user.role === "admin"
     ? ""
     : "JOIN project_members pm ON pm.project_id = t.project_id AND pm.user_id = $1";
 
-  const { rows: summary } = await query(
-    `SELECT
-       COUNT(*)::int AS total,
-       COUNT(*) FILTER (WHERE t.status = 'todo')::int AS todo,
-       COUNT(*) FILTER (WHERE t.status = 'in_progress')::int AS in_progress,
-       COUNT(*) FILTER (WHERE t.status = 'done')::int AS done,
-       COUNT(*) FILTER (WHERE t.status <> 'done' AND t.due_date < CURRENT_DATE)::int AS overdue
-     FROM tasks t ${visibilityJoin}`,
-    params
-  );
+  const [{ rows: projectSummary }, { rows: taskSummary }] = await Promise.all([
+    query(
+      `SELECT
+         COUNT(*)::int AS total,
+         COUNT(*) FILTER (WHERE p.status = 'todo')::int AS todo,
+         COUNT(*) FILTER (WHERE p.status = 'in_progress')::int AS in_progress,
+         COUNT(*) FILTER (WHERE p.status = 'done')::int AS done
+       FROM projects p ${projectJoin}`,
+      params
+    ),
+    query(
+      `SELECT
+         COUNT(*)::int AS total,
+         COUNT(*) FILTER (WHERE t.status = 'todo')::int AS todo,
+         COUNT(*) FILTER (WHERE t.status = 'in_progress')::int AS in_progress,
+         COUNT(*) FILTER (WHERE t.status = 'done')::int AS done,
+         COUNT(*) FILTER (WHERE t.status <> 'done' AND t.due_date < CURRENT_DATE)::int AS overdue
+       FROM tasks t ${taskJoin}`,
+      params
+    )
+  ]);
 
   const { rows: tasks } = await query(
     `SELECT t.*, p.name AS project_name, u.name AS assignee_name
      FROM tasks t
      JOIN projects p ON p.id = t.project_id
      LEFT JOIN users u ON u.id = t.assignee_id
-     ${visibilityJoin}
+     ${taskJoin}
      WHERE t.status <> 'done'
      ORDER BY t.due_date ASC NULLS LAST, t.priority DESC, t.created_at DESC
      LIMIT 8`,
     params
   );
 
-  res.json({ summary: summary[0], upcomingTasks: tasks });
+  const projects = projectSummary[0];
+  const taskStats = taskSummary[0];
+  res.json({
+    summary: {
+      total: projects.total + taskStats.total,
+      todo: projects.todo + taskStats.todo,
+      in_progress: projects.in_progress + taskStats.in_progress,
+      done: projects.done + taskStats.done,
+      overdue: taskStats.overdue
+    },
+    upcomingTasks: tasks
+  });
 });
 
 app.get("*", (_req, res) => {

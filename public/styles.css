@@ -239,6 +239,64 @@ button {
   padding: 24px 32px 40px;
 }
 
+.member-content {
+  padding: 24px 32px 40px;
+}
+
+.admin-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  min-height: calc(100vh - 72px);
+}
+
+.app-sidebar {
+  position: sticky;
+  top: 72px;
+  align-self: start;
+  display: grid;
+  gap: 22px;
+  min-height: calc(100vh - 72px);
+  padding: 22px;
+  background: #ffffff;
+  border-right: 1px solid var(--line);
+}
+
+.app-sidebar h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+
+.side-nav {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.side-nav button {
+  min-height: 42px;
+  padding: 0 12px;
+  color: var(--ink);
+  text-align: left;
+  background: transparent;
+  border-radius: 8px;
+  font-weight: 800;
+}
+
+.side-nav button:hover,
+.side-nav button.active {
+  color: var(--brand-dark);
+  background: #d9f3ef;
+}
+
+.admin-main {
+  padding: 24px 32px 40px;
+}
+
+.panel {
+  display: grid;
+  gap: 16px;
+}
+
 .sidebar {
   display: grid;
   align-content: start;
@@ -381,6 +439,34 @@ button {
   gap: 18px;
 }
 
+.project-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.project-card {
+  display: grid;
+  align-content: space-between;
+  gap: 16px;
+  min-height: 210px;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(24, 33, 47, 0.05);
+}
+
+.project-card h3 {
+  margin: 0 0 8px;
+}
+
+.project-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 .list {
   display: grid;
   gap: 10px;
@@ -412,6 +498,11 @@ button {
 
 .toolbar {
   padding: 16px;
+}
+
+.subhead {
+  margin: 2px 0 0;
+  font-size: 16px;
 }
 
 .task-grid {
@@ -476,8 +567,20 @@ button {
 @media (max-width: 960px) {
   .auth-page,
   .content,
+  .admin-layout,
   .workspace {
     grid-template-columns: 1fr;
+  }
+
+  .app-sidebar {
+    position: static;
+    min-height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .side-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .auth-visual {
@@ -494,6 +597,9 @@ button {
   .auth-panel,
   .auth-visual,
   .content,
+  .member-content,
+  .admin-main,
+  .app-sidebar,
   .topbar {
     padding-left: 18px;
     padding-right: 18px;
