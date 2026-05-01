@@ -125,6 +125,18 @@ button {
   margin-bottom: 14px;
 }
 
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 14px;
+}
+
+.section-title h2 {
+  margin: 0;
+}
+
 .field label {
   color: #334155;
   font-size: 13px;
@@ -256,6 +268,62 @@ button {
 
 .multi-select {
   min-height: 110px;
+}
+
+.member-checklist,
+.member-list {
+  display: grid;
+  gap: 8px;
+}
+
+.member-checklist {
+  max-height: 190px;
+  overflow: auto;
+  padding: 8px;
+  background: var(--soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.member-option,
+.member-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 40px;
+  padding: 8px 10px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.member-option input {
+  width: 16px;
+  height: 16px;
+}
+
+.member-row {
+  grid-template-columns: 1fr auto;
+}
+
+.member-row strong,
+.member-option strong {
+  display: block;
+  font-size: 14px;
+}
+
+.member-row span,
+.member-option span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.member-row .role,
+.member-option .role {
+  display: inline-block;
+  color: var(--brand-dark);
 }
 
 .main {

@@ -8,7 +8,8 @@ const state = {
   projectDetails: null,
   dashboard: null,
   authMode: "login",
-  error: ""
+  error: "",
+  formError: ""
 };
 
 const statusLabels = {
@@ -37,7 +38,7 @@ function saveSession(data) {
 function logout() {
   localStorage.removeItem("ttm_token");
   localStorage.removeItem("ttm_user");
-  Object.assign(state, { token: null, user: null, projects: [], currentProject: null, projectDetails: null, error: "" });
+  Object.assign(state, { token: null, user: null, projects: [], currentProject: null, projectDetails: null, error: "", formError: "" });
   render();
 }
 
@@ -111,33 +112,44 @@ async function handleAuth(event) {
 
 async function createProject(event) {
   event.preventDefault();
+  state.formError = "";
   const values = formData(event.currentTarget);
-  const memberIds = [...event.currentTarget.querySelector("[name=memberIds]").selectedOptions].map((option) => Number(option.value));
-  await api("/api/projects", {
-    method: "POST",
-    body: JSON.stringify({ name: values.name, description: values.description, memberIds })
-  });
-  event.currentTarget.reset();
-  await loadApp();
+  const memberIds = [...event.currentTarget.querySelectorAll("[name=memberIds]:checked")].map((input) => Number(input.value));
+  try {
+    const created = await api("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({ name: values.name, description: values.description, memberIds })
+    });
+    event.currentTarget.reset();
+    state.currentProject = created.project.id;
+    await loadApp();
+  } catch (error) {
+    state.formError = error.message;
+  }
   render();
 }
 
 async function createTask(event) {
   event.preventDefault();
+  state.formError = "";
   const values = formData(event.currentTarget);
-  await api("/api/tasks", {
-    method: "POST",
-    body: JSON.stringify({
-      projectId: Number(values.projectId),
-      title: values.title,
-      description: values.description,
-      assigneeId: values.assigneeId ? Number(values.assigneeId) : null,
-      priority: values.priority,
-      dueDate: values.dueDate || null
-    })
-  });
-  event.currentTarget.reset();
-  await loadApp();
+  try {
+    await api("/api/tasks", {
+      method: "POST",
+      body: JSON.stringify({
+        projectId: Number(values.projectId),
+        title: values.title,
+        description: values.description,
+        assigneeId: values.assigneeId ? Number(values.assigneeId) : null,
+        priority: values.priority,
+        dueDate: values.dueDate || null
+      })
+    });
+    event.currentTarget.reset();
+    await loadApp();
+  } catch (error) {
+    state.formError = error.message;
+  }
   render();
 }
 
@@ -192,19 +204,44 @@ function projectForm() {
   if (state.user.role !== "admin") {
     return `<div class="notice">Members can view assigned projects, create their own project tasks, and update their assigned task status.</div>`;
   }
+  const members = state.users.filter((user) => user.id !== state.user.id);
   return `
     <form class="form" id="project-form">
-      <h2>New Project</h2>
+      <div class="section-title"><h2>New Project</h2><span class="tag">${members.length} members</span></div>
       <div class="field"><label>Project name</label><input name="name" required minlength="2" /></div>
       <div class="field"><label>Description</label><textarea name="description"></textarea></div>
       <div class="field">
-        <label>Team members</label>
-        <select class="multi-select" name="memberIds" multiple>
-          ${state.users.map((user) => `<option value="${user.id}">${escapeHtml(user.name)} (${user.role})</option>`).join("")}
-        </select>
+        <label>Select members</label>
+        <div class="member-checklist">
+          ${members.length ? members.map((user) => `
+            <label class="member-option">
+              <input type="checkbox" name="memberIds" value="${user.id}" />
+              <span><strong>${escapeHtml(user.name)}</strong><span>${escapeHtml(user.email)}</span></span>
+              <span class="role">${user.role}</span>
+            </label>
+          `).join("") : `<div class="notice">No members have signed up yet.</div>`}
+        </div>
       </div>
       <button class="primary" type="submit">Create project</button>
+      ${state.formError ? `<p class="error">${escapeHtml(state.formError)}</p>` : ""}
     </form>
+  `;
+}
+
+function memberRoster() {
+  if (state.user.role !== "admin") return "";
+  return `
+    <section class="form">
+      <div class="section-title"><h2>Working Members</h2><span class="tag">${state.users.length}</span></div>
+      <div class="member-list">
+        ${state.users.map((user) => `
+          <div class="member-row">
+            <span><strong>${escapeHtml(user.name)}</strong><span>${escapeHtml(user.email)}</span></span>
+            <span class="role">${user.role}</span>
+          </div>
+        `).join("")}
+      </div>
+    </section>
   `;
 }
 
@@ -226,6 +263,7 @@ function taskForm() {
       <div class="field"><label>Priority</label><select name="priority"><option value="medium">Medium</option><option value="high">High</option><option value="low">Low</option></select></div>
       <div class="field"><label>Due date</label><input name="dueDate" type="date" /></div>
       <button class="primary" type="submit">Add task</button>
+      ${state.formError ? `<p class="error">${escapeHtml(state.formError)}</p>` : ""}
     </form>
   `;
 }
@@ -297,6 +335,7 @@ function appView() {
       </header>
       <div class="content">
         <aside class="sidebar">
+          ${memberRoster()}
           ${projectForm()}
           ${taskForm()}
         </aside>

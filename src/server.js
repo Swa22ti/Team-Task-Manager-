@@ -19,7 +19,11 @@ app.use(express.static(path.join(__dirname, "../public")));
 
 const signupSchema = z.object({
   name: z.string().trim().min(2).max(80),
-  email: z.string().trim().email().max(160).transform((value) => value.toLowerCase()),
+  email: z.string().trim().email().max(160).transform((value) => value.toLowerCase()).refine((email) => {
+    const domain = email.split("@")[1] || "";
+    const blockedDomains = new Set(["example.com", "example.org", "example.net", "test.com", "localhost"]);
+    return domain.includes(".") && !blockedDomains.has(domain);
+  }, "Use a real email address."),
   password: z.string().min(6).max(80),
   role: z.enum(["admin", "member"]).default("member")
 });
