@@ -100,7 +100,7 @@ Members can view projects where they are team members, create tasks assigned to 
 
 ## Submission Checklist
 
-- Live URL: add your Railway app URL here
-- GitHub repo: add your repository URL here
+- Live URL: https://team-task-manager-production-c806.up.railway.app
+- GitHub repo: https://github.com/Swa22ti/Team-Task-Manager-
 - README: included
 - Demo video: record a 2-5 minute walkthrough covering signup/login, admin project creation, task assignment, member login, status update, and dashboard metrics
